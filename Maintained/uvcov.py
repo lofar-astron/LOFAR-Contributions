@@ -43,7 +43,7 @@ def main(options):
 
 	debug = options.debug
         MSlist = []
-        for inmspart in options.inms.split(','):
+        for inmspart in options.input.split(','):
                 for msname in glob.iglob(inmspart):
 	                MSlist.append(msname)
 	if len(MSlist) == 0:
@@ -54,12 +54,12 @@ def main(options):
                 print 'WARNING: Antenna selection (other than all) may not work well'
                 print '         when plotting more than one MS. Carefully inspect the'
                 print '         listings of antenna numbers/names!'
-        if options.title == 'inms':
-                plottitle = options.inms
+        if options.title == 'input':
+                plottitle = options.input
         else:
                 plottitle = options.title
-        if options.filename!='':
-                fileformat = options.filename.split('.')[-1]
+        if options.output!='':
+                fileformat = options.output.split('.')[-1]
                 if fileformat not in supported_formats:
                         print 'Error: Unknown file extension. Supported ', \
                                 supported_formats
@@ -245,10 +245,10 @@ def main(options):
         plt.axes().set_aspect('equal')
         plt.grid(True)
 
-        if options.filename=='':
+        if options.output=='':
                 plt.show()
         else:
-                plt.savefig(options.filename)
+                plt.savefig(options.output)
 
 def signal_handler(signal, frame):
         sys.exit(0)
@@ -265,7 +265,7 @@ opt.add_argument('-a','--antennas',help='Antennas to use (comma separated list, 
 opt.add_argument('-k','--kilolambda',help='Plot in kilolambda rather than meters? [default False]',default=False,action='store_true', required=False)
 opt.add_argument('-w','--wideband',help='Plot each channel separately? Only useful with -k. [default False]',default=False, action='store_true', required=False)
 opt.add_argument('-s','--sameuv',help='Assume same uv coordinates (in meters) for multiple MSs? This is useful if all input MSs are SBs of a single observation. It is NOT useful when combining MSs from different timeranges. [default False]',default=False,action='store_true')
-opt.add_argument('--title',help="Plot title [default: no title; use string 'inms' to use the MS name; any other string for another title]",default='', required=False)
+opt.add_argument('--title',help="Plot title [default: no title; use string 'input' to use the MS name; any other string for another title]",default='', required=False)
 opt.add_argument('-d','--debug',help='Run in debug mode? [default False]',default=False,action='store_true', required=False)
 opt.add_argument('-q','--query',help='Query mode (quits after reading dimensions, use for unfamiliar MSs) [default False]',default=False,action='store_true', required=False)
 options = opt.parse_args()
