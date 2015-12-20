@@ -29,6 +29,7 @@ To do:
 import argparse
 import glob
 import signal
+import os
 import sys
 import matplotlib
 import matplotlib.pyplot as plt
@@ -55,7 +56,7 @@ def main(options):
                 print '         when plotting more than one MS. Carefully inspect the'
                 print '         listings of antenna numbers/names!'
         if options.title == 'input':
-                plottitle = options.input
+                (_,plottitle) = os.path.split(options.input)
         else:
                 plottitle = options.title
         if options.output!='':
@@ -93,6 +94,7 @@ def main(options):
                         return
 	queryMode = options.query
         plotLambda = options.kilolambda
+        markerSize = options.markersize
 
         badval = 0.0
         xaxisvals = numpy.array([])
@@ -240,7 +242,8 @@ def main(options):
                 plt.ylabel('v [km]')
                 plt.xlim([minx,maxx])
                 plt.ylim([miny,maxy])
-        plt.plot(xaxisvals[tmpvals!=badval], yaxisvals[tmpvals!=badval],'.')
+        plt.plot(xaxisvals[tmpvals!=badval], yaxisvals[tmpvals!=badval],'.',
+                 markersize=markerSize)
         plt.title(plottitle)
         plt.axes().set_aspect('equal')
         plt.grid(True)
@@ -268,6 +271,8 @@ opt.add_argument('-s','--sameuv',help='Assume same uv coordinates (in meters) fo
 opt.add_argument('--title',help="Plot title [default: no title; use string 'input' to use the MS name; any other string for another title]",default='', required=False)
 opt.add_argument('-d','--debug',help='Run in debug mode? [default False]',default=False,action='store_true', required=False)
 opt.add_argument('-q','--query',help='Query mode (quits after reading dimensions, use for unfamiliar MSs) [default False]',default=False,action='store_true', required=False)
+opt.add_argument('--markersize', help="Size of the markers (default=4)", type=int, default=4, required=False)
+
 options = opt.parse_args()
 
 signal.signal(signal.SIGINT, signal_handler)
