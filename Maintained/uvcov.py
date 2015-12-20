@@ -4,49 +4,47 @@
 uvcov.py
 
 This script is intended to provide a way to quickly plot uv coverage
-for LOFAR datasets. It uses pyrap and ppgplot (numpy version).
+for LOFAR datasets. It uses 'pyrap' to read the MS.
 
-If you use postscript device output, you may want to use 'embiggen.csh'
-(located at /home/heald/bin/embiggen.csh) which makes the pointsizes bigger.
-
-If you want square plots, you have to modify environment variables:
-PGPLOT_PS_WIDTH
-PGPLOT_PS_HEIGHT
-Values of 7800 (equivalent to a physical size of 7.8 inches) work fine for me.
-
-Written by George Heald
+Originally written by George Heald
 v1.0 completed 3/6/2010
+v1.2 completed 4/8/2010
+v1.3 completed 10/2/2011
+Edited by Yan Grange and Matthias Petschow
+v1.4 completed 4/12/2015
 
 10 June 2010  v1.1  Add choice to plot in kilolambda
  4 Aug  2010  v1.2  Add choice to assume same u,v in meters
 10 Feb  2011  v1.3  Add option to specify title of plot
                     Add ability to plot broadband uv coverage from one MS
                     Allow antenna ranges instead of only lists (in -e)
+ 4 Dec  2015  v1.4  Replace dependence on PPGLOT by matplotlib
+                    Replace optparse by argparse
 
 To do:
 - Fix antenna selection for plotting >1 MS
 
 """
 
-import optparse
+import argparse
 import glob
 import signal
+import os
 import sys
-import ppgplot
-# Note, for documentation on ppgplot, see
-# http://www.astro.rug.nl/~breddels/python/ppgplot/ppgplot-doc.txt
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy
 import pyrap.tables as pt
 
-version_string = 'v1.3, 10 February 2011'
-print 'uvcov.py',version_string
+version_string = 'v1.4, 4 December 2015'
+print __file__,version_string
 print ''
 
 def main(options):
 
 	debug = options.debug
         MSlist = []
-        for inmspart in options.inms.split(','):
+        for inmspart in options.input.split(','):
                 for msname in glob.iglob(inmspart):
 	                MSlist.append(msname)
 	if len(MSlist) == 0:
@@ -57,16 +55,18 @@ def main(options):
                 print 'WARNING: Antenna selection (other than all) may not work well'
                 print '         when plotting more than one MS. Carefully inspect the'
                 print '         listings of antenna numbers/names!'
-	device = options.device
-	if device=='?':
-		ppgplot.pgldev()
-		return
-        if options.title == '':
-                plottitle = options.inms
+        if options.title == 'input':
+                (_,plottitle) = os.path.split(options.input)
         else:
                 plottitle = options.title
-	axlimits = options.axlimits.split(',')
-	if len(axlimits) == 4:
+        if options.output!='':
+                fileformat = options.output.split('.')[-1]
+                if fileformat not in supported_formats:
+                        print 'Error: Unknown file extension. Supported ', \
+                                supported_formats
+        axlimits = options.limits.strip().split(',')
+        print axlimits
+        if len(axlimits) == 4:
 		xmin,xmax,ymin,ymax = axlimits
 	else:
 		print 'Error: You must specify four axis limits'
@@ -94,6 +94,7 @@ def main(options):
                         return
 	queryMode = options.query
         plotLambda = options.kilolambda
+        markerSize = options.markersize
 
         badval = 0.0
         xaxisvals = numpy.array([])
@@ -121,7 +122,7 @@ def main(options):
                                         xaxisvals = numpy.append(xaxisvals,[savex/w/1000.,-savex/w/1000.])
                                         yaxisvals = numpy.append(yaxisvals,[savey/w/1000.,-savey/w/1000.])
                         else:
-                                print 'Plotting more than one MS with same uv, all in meters... do you want -k?'
+                                print 'Plotting more than one MS with same uv, all in kilometers... do you want -k?'
                                 xaxisvals = numpy.append(xaxisvals,[savex,-savex])
                                 yaxisvals = numpy.append(yaxisvals,[savey,-savey])
                         continue
@@ -185,8 +186,8 @@ def main(options):
                                         xaxisvals = numpy.append(xaxisvals,[uvw[:,0]/w/1000.,-uvw[:,0]/w/1000.])
                                         yaxisvals = numpy.append(yaxisvals,[uvw[:,1]/w/1000.,-uvw[:,1]/w/1000.])
                         else:
-                                xaxisvals = numpy.append(xaxisvals,[uvw[:,0],-uvw[:,0]])
-                                yaxisvals = numpy.append(yaxisvals,[uvw[:,1],-uvw[:,1]])
+                                xaxisvals = numpy.append(xaxisvals,[uvw[:,0]/1000.,-uvw[:,0]/1000.])
+                                yaxisvals = numpy.append(yaxisvals,[uvw[:,1]/1000.,-uvw[:,1]/1000.])
         		#if debug:
                         #        print uvw.shape
         		#	print xaxisvals.shape
@@ -198,19 +199,13 @@ def main(options):
                 numPlotted += 1
 
         print 'Plotting uv points ...'
-	# open the graphics device, using only one panel
-	ppgplot.pgbeg(device, 1, 1)
-	# set the font size
-	ppgplot.pgsch(1)
-	ppgplot.pgvstd()
 
-	# Plot the data
+        # Plot the data
         if debug:
                 print xaxisvals
         xaxisvals = numpy.array(xaxisvals)
         yaxisvals = numpy.array(yaxisvals)
         tmpvals = numpy.sqrt(xaxisvals**2+yaxisvals**2)
-	ppgplot.pgsci(1)
         uvmax = max(xaxisvals.max(),yaxisvals.max())
         uvmin = min(xaxisvals.min(),yaxisvals.min())
         uvuplim = 0.02*(uvmax-uvmin)+uvmax
@@ -237,36 +232,50 @@ def main(options):
 	if miny == maxy:
 		miny = -1.0
 		maxy = 1.0
-        ppgplot.pgpage()
-	ppgplot.pgswin(minx,maxx,miny,maxy)
-        ppgplot.pgbox('BCNST',0.0,0,'BCNST',0.0,0)
         if plotLambda:
-	        ppgplot.pglab('u [k\gl]', 'v [k\gl]', '%s'%(plottitle))
+                plt.xlabel(r'u [k$\lambda$]')
+                plt.ylabel(r'v [k$\lambda$]')
+                plt.xlim([minx,maxx])
+                plt.ylim([miny,maxy])
         else:
-	        ppgplot.pglab('u [m]', 'v [m]', '%s'%(plottitle))
-	ppgplot.pgpt(xaxisvals[tmpvals!=badval], yaxisvals[tmpvals!=badval], 1)
+                plt.xlabel('u [km]')
+                plt.ylabel('v [km]')
+                plt.xlim([minx,maxx])
+                plt.ylim([miny,maxy])
+        plt.plot(xaxisvals[tmpvals!=badval], yaxisvals[tmpvals!=badval],'.',
+                 markersize=markerSize)
+        plt.title(plottitle)
+        plt.axes().set_aspect('equal')
+        plt.grid(True)
 
-	# Close the PGPLOT device
-	ppgplot.pgclos()
-		
+        if options.output=='':
+                plt.show()
+        else:
+                plt.savefig(options.output)
 
 def signal_handler(signal, frame):
         sys.exit(0)
 
-opt = optparse.OptionParser()
-opt.add_option('-i','--inms',help='Input MS(s) to plot [no default]. Multiple MS names can be given together, separated by commas. Wildcards are also accepted in order to make it easier to plot more than one MS at a time.',default='')
-opt.add_option('-d','--device',help='PGPLOT device to use for the plotting [default /xs], for options use the string "?"',default='/xs')
-opt.add_option('-a','--axlimits',help='Axis limits (comma separated in order: xmin,xmax,ymin,ymax), leave any of them blank to use data min/max [default ",,,"]',default=',,,')
-opt.add_option('-t','--timeslots',help='Timeslots to use (comma separated and zero-based: start,skip,end) [default 0,0,0 = full time range, skipping such that 100 points are plotted per baseline]',default='0,0,0')
-opt.add_option('-e','--antennas',help='Antennas to use (comma separated list, zero-based) [default -1=all] Use -q to see a list of available antennas. Only antennas in this list are plotted. When plotting more than one MS this may not work well. To specify an inclusive range of antennas use .. format, e.g. -e 0..9 requests the first 10 antennas.',default='-1',type='string')
-opt.add_option('-k','--kilolambda',help='Plot in kilolambda rather than meters? [default False]',default=False,action='store_true')
-opt.add_option('-w','--wideband',help='Plot each channel separately? Only useful with -k. [default False]',default=False,action='store_true')
-opt.add_option('-s','--sameuv',help='Assume same uv coordinates (in meters) for multiple MSs? This is useful if all input MSs are SBs of a single observation. It is NOT useful when combining MSs from different timeranges. [default False]',default=False,action='store_true')
-opt.add_option('--title',help="Plot title [default ''=MS name] If you need no title at all, use --title=' '",default='')
-opt.add_option('-b','--debug',help='Run in debug mode? [default False]',default=False,action='store_true')
-opt.add_option('-q','--query',help='Query mode (quits after reading dimensions, use for unfamiliar MSs) [default False]',default=False,action='store_true')
-options, arguments = opt.parse_args()
+
+supported_formats = ['png','pdf','eps','ps']
+
+opt = argparse.ArgumentParser(description="""Print UV coverage from a Measurement Set. Simple examples: (1) ${0} -i example.MS; or (2) ${0} -i example.MS -o example.png""".format(__file__))
+opt.add_argument('-i','--input', help='Input MS(s) to plot [no default]. Multiple MS names can be given together, separated by commas. Wildcards are also accepted in order to make it easier to plot more than one MS at a time.', default='', required=True)
+opt.add_argument('-o','--output', help="Image file name. If not specified, drawing to the screen. If specified, needs to have formatting 'name.format' (e.g. example.png). Supported file formats: {0}".format(','.join(supported_formats)), default='', required=False)
+opt.add_argument('-l','--limits',help="Axis limits (comma separated in order: '-l=xmin,xmax,ymin,ymax', leave any of them blank to use data min/max",default=',,,', required=False)
+opt.add_argument('-t','--timeslots',help="Timeslots to use (comma separated and zero-based: '-t=start,skip,end') [default 0,0,0 = full time range, skipping such that 100 points are plotted per baseline]", default='0,0,0', required=False)
+opt.add_argument('-a','--antennas',help='Antennas to use (comma separated list, zero-based) [default -1=all] Use -q to see a list of available antennas. Only antennas in this list are plotted. When plotting more than one MS this may not work well. To specify an inclusive range of antennas use .. format, e.g. -e 0..9 requests the first 10 antennas.',default='-1', required=False)
+opt.add_argument('-k','--kilolambda',help='Plot in kilolambda rather than meters? [default False]',default=False,action='store_true', required=False)
+opt.add_argument('-w','--wideband',help='Plot each channel separately? Only useful with -k. [default False]',default=False, action='store_true', required=False)
+opt.add_argument('-s','--sameuv',help='Assume same uv coordinates (in meters) for multiple MSs? This is useful if all input MSs are SBs of a single observation. It is NOT useful when combining MSs from different timeranges. [default False]',default=False,action='store_true')
+opt.add_argument('--title',help="Plot title [default: no title; use string 'input' to use the MS name; any other string for another title]",default='', required=False)
+opt.add_argument('-d','--debug',help='Run in debug mode? [default False]',default=False,action='store_true', required=False)
+opt.add_argument('-q','--query',help='Query mode (quits after reading dimensions, use for unfamiliar MSs) [default False]',default=False,action='store_true', required=False)
+opt.add_argument('--markersize', help="Size of the markers (default=4)", type=int, default=4, required=False)
+
+options = opt.parse_args()
 
 signal.signal(signal.SIGINT, signal_handler)
 
 main(options)
+
