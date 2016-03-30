@@ -62,6 +62,10 @@ version 1.21 10/02/2011: Improve antenna selection method
 version 1.22 15/02/2011: Allow user to stop plotting partway, nondestructively
 version 1.23 08/03/2011: Plot XY.YX* (adding operation options)
 version 1.24 15/03/2011: In operations the phase is always within +-PI
+version 1.25 13/05/2011: Allow to select arbitrary column names as well as + and
+                         - between two arbitrary columns
+version 1.26 02/09/2011: Add hour angle for x-axis possibilities
+version 1.27 30/11/2011: Add ability to plot multiple MSs
 
 To do:
 - Implement time slices.
@@ -76,6 +80,7 @@ import ppgplot
 import numpy.ma
 from Tkinter import *
 import tkFileDialog
+import glob
 
 try:
         import pyrap.tables as pt
@@ -85,7 +90,7 @@ except ImportError:
         exit()
 
 
-version_string = 'v1.23, 08 March 2011\nWritten by George Heald, modified by Oscar Martinez'
+version_string = 'v1.27, 30 November 2011\nWritten by George Heald, modified by Oscar Martinez'
 print 'uvplot.py',version_string
 print ''
 
@@ -96,24 +101,35 @@ def main(options):
         global keepPlotting
         keepPlotting = True
         debug = options.debug
-        inputMS = options.inms
+        inputMS = glob.glob(options.inms)
         if inputMS == '':
                 print 'Error: You must specify a MS name.'
                 print '       Use "uvplot.py -h" to get help.'
                 return
-            
-        if inputMS.endswith('/'):
-            inputMS = inputMS[:-1]
-        inputMSbasename = inputMS.split('/')[-1]
+        if options.inms.endswith('/'):
+            options.inms = options.inms[:-1]
+        inputMSbasename = options.inms.split('/')[-1]
         if inputMSbasename == '':
             # The user has not specified the full path of the MS
-            inputMSbasename = inputMS
+            inputMSbasename = options.inms
         
         device = options.device
         if device=='?':
                 ppgplot.pgldev()
                 return
         xaxis = options.xaxis
+        if xaxis == 'ha':
+            print 'Adding derived columns to allow plotting hour angle...'
+            try:
+                pt.addDerivedMSCal(inputMS)
+            except:
+                print 'Failed, trying to remove and add columns...'
+                try:
+                    pt.removeDerivedMSCal(inputMS)
+                    pt.addDerivedMSCal(inputMS)
+                except:
+                    print 'That failed too... plotting HA seems to not be possible.'
+                    return
         yaxis = options.yaxis
         column = options.column
         nx, ny = options.nxy.split(',')
@@ -179,8 +195,8 @@ def main(options):
 
         # open the main table and print some info about the MS
         t = pt.table(inputMS, readonly=True, ack=False)
-        firstTime = t.getcell("TIME", 0)
-        lastTime = t.getcell("TIME", t.nrows()-1)
+        firstTime = t.query(sortlist='TIME',columns='TIME',limit=1).getcell("TIME", 0)
+        lastTime = t.query(sortlist='TIME',columns='TIME',offset=t.nrows()-1).getcell("TIME", 0)
         intTime = t.getcell("INTERVAL", 0)
         print 'Integration time:\t%f sec' % (intTime)
         nTimeslots = (lastTime - firstTime) / intTime
@@ -224,6 +240,7 @@ def main(options):
 
         # define nicely written axis labels
         axisLabels = {'time': 'Time',
+                      'ha': 'Hour angle',
                       'chan': 'Channel',
                       'freq': 'Frequency [MHz]',
                       'amp': 'Visibility amplitude',
@@ -242,7 +259,7 @@ def main(options):
                         if not showAutocorr:
                                 continue
                 # Get the values to plot, strategy depends on axis type
-                if xaxis == 'time':
+                if xaxis == 'time' or xaxis == 'ha':
                         xaxisvals = getXAxisVals(tpart, xaxis, channels)
                         yaxisvals = getYAxisVals(tpart, yaxis, column, operation, showFlags, flagCol, channels, doUnwrap, convertStokes)
                 else:
@@ -298,7 +315,7 @@ def main(options):
                         maxy += 0.02*diffy
                 #ppgplot.pgpage()
                 ppgplot.pgswin(minx,maxx,miny,maxy)
-                if xaxis == 'time':
+                if xaxis == 'time' or xaxis == 'ha':
                         ppgplot.pgtbox('ZHOBCNST',0.0,0,'BCNST',0.0,0)
                 else:
                         ppgplot.pgbox('BCNST',0.0,0,'BCNST',0.0,0)
@@ -338,6 +355,10 @@ def main(options):
 
         # Close the PGPLOT device
         ppgplot.pgclos()
+
+        if xaxis=='ha':
+            print 'Removing derived columns...'
+            pt.removeDerivedMSCal(inputMS)
                 
 # Add information, i.e. the label inte plot and the statistics if required
 def addInfo(showStats, values, label, xPosition, yPosition):
@@ -354,22 +375,36 @@ def addInfo(showStats, values, label, xPosition, yPosition):
 
 def getData(table,column):
     
-    if column == 'CORRECTED_DATA-MODEL_DATA':
+    splitColumn = column.split(',')
+    
+    if len(splitColumn) == 1:
+         return table.getcol(column)
+    elif len(splitColumn) == 3:
+        columnAData = table.getcol(splitColumn[0])
+        operation = splitColumn[1]
+        columnBData = table.getcol(splitColumn[2])
         
-        cd = table.getcol('CORRECTED_DATA')
-        md = table.getcol('MODEL_DATA')
-        
-        return (cd-md)
-    else:
-        return table.getcol(column)
+        if operation == '-':
+            return (columnAData-columnBData)
+        elif operation == '+':
+            return (columnAData+columnBData)
+    
+    # If we reach this point it means that the column is not correct
+    print 'Column to plot: ' + column + ' is not correct!'
+    return None
     
 def getDataDescription(column):
     
-    if column == 'CORRECTED_DATA-MODEL_DATA':
-        
-        return 'C-M'
-    else:
-        return column[0]
+    splitColumn = column.split(',')
+    
+    if len(splitColumn) == 1:
+         return column[0]
+    elif len(splitColumn) == 3:
+        columnACapital = splitColumn[0][0]
+        operation = splitColumn[1]
+        columnBCapital = splitColumn[2][0]
+        return (columnACapital + operation + columnBCapital)
+    return None
 
 # Get the x axis data out of the table (time, chan or freq)
 def getXAxisVals(table, axisname, channels):
@@ -378,6 +413,11 @@ def getXAxisVals(table, axisname, channels):
         tmp = table.getcol('TIME')
         if tmp != None:
             return numpy.array(tmp-tmp.min(),dtype=numpy.float)
+        return None
+    if axisname == 'ha':
+        tmp = table.getcol('HA')
+        if tmp!= None:
+            return numpy.array(tmp*180./numpy.pi*3600./15.,dtype=numpy.float)
         return None
     elif axisname == 'chan':
         tmp = table.getcol('CHAN_FREQ')[0]
@@ -614,11 +654,11 @@ def signal_handler(signal, frame):
 opt = optparse.OptionParser()
 opt.add_option('-i','--inms',help='Input MS to plot [no default]',default='')
 opt.add_option('-d','--device',help='PGPLOT device to use for the plotting [default /xwin], for options use the string "?"',default='/xwin')
-opt.add_option('-x','--xaxis',help='X axis type (choose from time|chan|freq) [default time]',default='time',type='choice',choices=['time','chan','freq'])
+opt.add_option('-x','--xaxis',help='X axis type (choose from time|ha|chan|freq) [default time]',default='time',type='choice',choices=['time','ha','chan','freq'])
 opt.add_option('-y','--yaxis',help='Y axis type (choose from amp|phase|real|imag) [default amp]',default='amp',type='choice',choices=['amp','phase','real','imag'])
 opt.add_option('-a','--axlimits',help='Axis limits (comma separated in order: xmin,xmax,ymin,ymax), leave any of them blank to use data min/max [default ",,,"]',default=',,,')
 opt.add_option('-n','--nxy',help='Number of subplots in x,y [default 3,2]',default='3,2')
-opt.add_option('-c','--column',help='Column to plot (choose from DATA|CORRECTED_DATA|MODEL_DATA|CORRECTED_DATA-MODEL_DATA) [default DATA]',default='DATA',type='choice',choices=['DATA','CORRECTED_DATA','MODEL_DATA', 'CORRECTED_DATA-MODEL_DATA'])
+opt.add_option('-c','--column',help='Column to plot. The options are DATA|CORRECTED_DATA|MODEL_DATA but also other columns that the user may have created. It is also possible to specify a combination of two columns. For example the user may want the CORRECTED_DATA-MODEL_DATA. In such example the user should write: CORRECTED_DATA,-,MODEL_DATA. Currently + and - are supported. [default DATA]',default='DATA')
 opt.add_option('-t','--timeslots',help='Timeslots to use (comma separated and zero-based: start,end[inclusive]) [default 0,-1 = all] Negative values work like python slicing, but please note that the second index here is inclusive. If plotting channel or frequency on x-axis, this parameter sets the time averaging interval.',default='0,-1')
 opt.add_option('-s','--channels',help='Channels to use (comma separated and zero-based: start,end[inclusive]) [default 0,-1 = all] Negative values work like python slicing, but please note that the second index here is inclusive. If plotting time on x-axis, this parameter sets the channel averaging interval.',default='0,-1')
 opt.add_option('-e','--antennas',help='Antennas to use (comma separated list, zero-based) [default -1=all] Use -q to see a list of available antennas. Only antennas in this list are plotted. To specify an inclusive range of antennas use .. format, e.g. -e 0..9 requests the first 10 antennas.',default='-1',type='string')
@@ -660,7 +700,7 @@ class GuiFrontend:
                 self.xaxisLabel = Label(self.frame, text="X-axis type")
                 self.xvar = StringVar(self.frame)
                 self.xvar.set(self.myoptions.xaxis)
-                self.xaxisDropbox = OptionMenu(self.frame, self.xvar, "time", "chan", "freq")
+                self.xaxisDropbox = OptionMenu(self.frame, self.xvar, "time", "ha", "chan", "freq")
                 self.xaxisDropbox.pack()
                 self.yaxisLabel = Label(self.frame, text="Y-axis type")
                 self.yvar = StringVar(self.frame)
