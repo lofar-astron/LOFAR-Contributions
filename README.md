@@ -6,4 +6,4 @@ The MAINTAINED, UNMAINTAINED and OBSOLETE sub-folders contain data analysis scri
 Note that the following general rules apply:
 * all script are made free for LOFAR community,
 * user are welcome to edit/improve and re-share tools in the UNMAINTINED and OBSOLETE folders; to this aim please contact Science Operations and Support (SOS),
-* each script in the MAINTAINED sub-folder has an author responsible for it; for any question/suggestion users should first contact Science Support as listed in the Readme.txt file.
+* each script in the MAINTAINED sub-folder has an author responsible for it; for any question/suggestion users should first contact SOS as listed in the Readme.txt file.
